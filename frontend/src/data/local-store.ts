@@ -1,8 +1,10 @@
 import { SEED_ROWS } from './seed'
-import type { EntryRow } from './types'
+import type { EntryRow, QueryResultRecord } from './types'
 
 // 本地持久化：数据放在 localStorage 里，刷新、关掉再打开都还在。
 const STORAGE_KEY = 'data-explore-studio:entries'
+// 查询执行结果单独存放：语句快照、结果字段、回执与有效执行链都随结果归档。
+const QUERY_RESULT_KEY = 'data-explore-studio:query-results'
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
@@ -27,13 +29,10 @@ function readStorage(): Record<string, EntryRow[]> {
   }
 }
 
-let cache: Record<string, EntryRow[]> | null = null
-
+// 每次都从 localStorage 读最新数据：并发重试/多标签页写入后，读到的必须是同一份，
+// 不能在内存里缓存一份旧快照把别人刚写入的结果盖掉。
 export function allRows(): Record<string, EntryRow[]> {
-  if (cache === null) {
-    cache = readStorage()
-  }
-  return cache
+  return readStorage()
 }
 
 export function listRows(key: string): EntryRow[] {
@@ -42,7 +41,6 @@ export function listRows(key: string): EntryRow[] {
 
 export function saveRows(key: string, rows: EntryRow[]): void {
   const next = { ...allRows(), [key]: rows }
-  cache = next
   if (typeof window !== 'undefined' && window.localStorage) {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
   }
@@ -56,4 +54,37 @@ export function resetRows(key: string): EntryRow[] {
 
 export function storageKey(): string {
   return STORAGE_KEY
+}
+
+export function queryResultStorageKey(): string {
+  return QUERY_RESULT_KEY
+}
+
+/** 读取全部查询执行结果记录（含已归档执行链），始终以持久化数据为准。 */
+export function allQueryResults(): QueryResultRecord[] {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return []
+  }
+  const raw = window.localStorage.getItem(QUERY_RESULT_KEY)
+  if (!raw) {
+    return []
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) ? (parsed as QueryResultRecord[]) : []
+  } catch {
+    return []
+  }
+}
+
+/** 覆盖写入查询执行结果记录。 */
+export function saveQueryResults(records: QueryResultRecord[]): void {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    window.localStorage.setItem(QUERY_RESULT_KEY, JSON.stringify(records))
+  }
+}
+
+/** 重置查询执行结果记录。 */
+export function resetQueryResults(): void {
+  saveQueryResults([])
 }
